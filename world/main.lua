@@ -1,6 +1,16 @@
 -- main.lua
 -- Procedural Resource Generation Engine v12.0 (Impact Dust & V12 Ecosystem Integration)
 
+local has_flags, FeatureFlags = pcall(require, "game.core.feature_flags")
+local has_world_adapter, WorldCompat = pcall(require, "prototypes.adapters.world_compat")
+
+local function is_flag_enabled(name)
+    if not has_flags or type(FeatureFlags) ~= "table" or type(FeatureFlags.is_enabled) ~= "function" then
+        return false
+    end
+    return FeatureFlags.is_enabled(name)
+end
+
 --------------------------------------------------------------------------------
 -- 1. SYSTEM PALETTES, RARITIES & SETTINGS
 --------------------------------------------------------------------------------
@@ -320,9 +330,63 @@ end
 --------------------------------------------------------------------------------
 local renderScale = 4
 
+local WORLD_ARCH_COMPAT_MAP = {
+    salvage_node = "Stone",
+    crystal_vein = "SpecialOre",
+    relay_tower = "Bedrock",
+}
+
+local RARITY_COMPAT_MAP = {
+    scrap = "Scrap",
+    common = "Common",
+    uncommon = "Uncommon",
+    rare = "Rare",
+    epic = "Epic",
+    legendary = "Legendary",
+    eridian = "Eridian",
+}
+
+local function read_compat_meta(compat)
+    if type(compat) ~= "table" or type(compat.meta) ~= "table" then
+        return {}
+    end
+    return compat.meta
+end
+
+local function normalize_dimension(value, fallback)
+    local n = tonumber(value)
+    if n and n > 0 then
+        return n
+    end
+    return fallback
+end
+
 local function rollNewResource()
     Particles, FloatingTexts, Dust = {}, {}, {}
     MiningState = { shake = 0, scaleX = 1.0, scaleY = 1.0, screenFlash = 0, hitFlash = 0, lastHit = 0 }
+    if is_flag_enabled("enable_mte_world_gen") and has_world_adapter and type(WorldCompat.rollNewWorld) == "function" then
+        local compat, compat_err = WorldCompat.rollNewWorld()
+        if compat and compat.image then
+            local meta = read_compat_meta(compat)
+            local arch_key = tostring(meta.archetype or compat.arch or "salvage_node"):lower()
+            local arch = WORLD_ARCH_COMPAT_MAP[arch_key] or "Stone"
+            local rarity_key = tostring(meta.rarity or "common"):lower()
+            local rarity = RARITY_COMPAT_MAP[rarity_key] or "Common"
+            ActiveItem = {
+                image = compat.image,
+                w = normalize_dimension(compat.w, 64),
+                h = normalize_dimension(compat.h, 64),
+                arch = arch,
+                rarity = rarity,
+                rData = RARITIES[rarity] or RARITIES.Common,
+                name = compat.name or (rarity .. " " .. arch),
+            }
+            return
+        end
+        if compat_err then
+            print("MTE world adapter failed; falling back to legacy generator: " .. tostring(compat_err))
+        end
+    end
 
     local archs = { "Wood", "Stone", "Obsidian", "Bedrock", "SpecialOre", "AlienOre" }
     local rarities = {"Scrap", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Eridian"}
@@ -477,34 +541,6 @@ function love.draw()
         love.graphics.print(ft.text, -20, 0, 0, 2, 2)
         love.graphics.pop()
     end
-
-    -- V12 UI Layout Frame
-    love.graphics.setColor(PALETTES.ui.panel)
-    love.graphics.rectangle("fill", 20, 20, 320, 240, 12, 12)
-    love.graphics.setColor(ActiveItem.rData.color)
-    love.graphics.rectangle("line", 20, 20, 320, 240, 12, 12)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("[SPACE] Discover New Node", 40, 40)
-    love.graphics.print("[L-CLICK] Mine / Harvest", 40, 60)
-    
-    love.graphics.setColor(ActiveItem.rData.color)
-    love.graphics.print(string.upper(ActiveItem.name), 40, 90, 0, 1.2, 1.2)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("TIER: ", 40, 115)
-    love.graphics.setColor(ActiveItem.rData.color)
-    love.graphics.print(string.upper(ActiveItem.rarity), 80, 115)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("CLASS: ", 180, 115)
-    love.graphics.setColor(0.8, 0.8, 0.8)
-    love.graphics.print(string.upper(ARCHETYPES[ActiveItem.arch].type), 235, 115)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("YIELD:", 40, 145)
-    love.graphics.setColor(0.4, 0.8, 0.4)
-    love.graphics.print(">> " .. string.upper(ARCHETYPES[ActiveItem.arch].drop) .. " RESOURCES", 50, 170)
 
     -- V12 Crosshair
     local cx, cy = MouseX, MouseY

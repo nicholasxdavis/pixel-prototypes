@@ -1,5 +1,15 @@
 -- Procedural Shield Generation Engine v1.0 (Borderlands Inspired Tech Modules)
 
+local has_flags, FeatureFlags = pcall(require, "game.core.feature_flags")
+local has_shield_adapter, ShieldCompat = pcall(require, "prototypes.adapters.shield_compat")
+
+local function is_flag_enabled(name)
+    if not has_flags or type(FeatureFlags) ~= "table" or type(FeatureFlags.is_enabled) ~= "function" then
+        return false
+    end
+    return FeatureFlags.is_enabled(name)
+end
+
 --------------------------------------------------------------------------------
 -- 1. SYSTEM PALETTES, RARITIES & SETTINGS
 --------------------------------------------------------------------------------
@@ -261,8 +271,81 @@ end
 local ActiveModule = {}
 local renderScale = 4
 
+local SHIELD_ARCH_COMPAT_MAP = {
+    buckler = "Standard",
+    bulwark = "Bulwark",
+    aegis = "Amp",
+}
+
+local RARITY_COMPAT_MAP = {
+    scrap = "Scrap",
+    common = "Common",
+    uncommon = "Uncommon",
+    rare = "Rare",
+    epic = "Epic",
+    legendary = "Legendary",
+    mythic = "Mythic",
+    p2w = "P2W",
+}
+
+local function read_compat_meta(compat)
+    if type(compat) ~= "table" or type(compat.meta) ~= "table" then
+        return {}
+    end
+    return compat.meta
+end
+
+local function normalize_dimension(value, fallback)
+    local n = tonumber(value)
+    if n and n > 0 then
+        return n
+    end
+    return fallback
+end
+
+local function normalize_shield_anchors(anchors, w, h)
+    local default_core = { x = math.floor(w * 0.5), y = math.floor(h * 0.5) }
+    if type(anchors) ~= "table" then
+        return { core = default_core }
+    end
+    local core = type(anchors.core) == "table" and anchors.core or default_core
+    return { core = core }
+end
+
 local function rollNewModule()
     Particles, ShieldPulse = {}, {}
+    if is_flag_enabled("enable_mte_shield_gen") and has_shield_adapter and type(ShieldCompat.rollNewShield) == "function" then
+        local compat, compat_err = ShieldCompat.rollNewShield()
+        if compat and compat.image then
+            local meta = read_compat_meta(compat)
+            local arch_key = tostring(meta.archetype or compat.arch or "buckler"):lower()
+            local arch = SHIELD_ARCH_COMPAT_MAP[arch_key] or "Standard"
+            local rarity_key = tostring(meta.rarity or "common"):lower()
+            local rarity = RARITY_COMPAT_MAP[rarity_key] or "Common"
+            local element = tostring(meta.element or "none"):lower()
+            local width = normalize_dimension(compat.w, 64)
+            local height = normalize_dimension(compat.h, 64)
+            ActiveModule = {
+                image = compat.image,
+                anchors = normalize_shield_anchors(compat.anchors, width, height),
+                w = width,
+                h = height,
+                arch = arch,
+                element = PALETTES.elements[element] and element or "none",
+                rarity = rarity,
+                rData = RARITIES[rarity] or RARITIES.Common,
+                skin = meta.skin or "MTE",
+                name = compat.name or (rarity .. " " .. arch .. " Module"),
+                mods = {},
+            }
+            ModuleState.shake = 5
+            return
+        end
+        if compat_err then
+            print("MTE shield adapter failed; falling back to legacy generator: " .. tostring(compat_err))
+        end
+    end
+
     local archs = { "Standard", "Bulwark", "Burst", "Thorn", "Amp", "Siphon", "Phalanx" }
     local elements = {"none", "none", "plasma", "fire", "shock", "poison", "ice", "void"}
     local rarities = {"Scrap", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "P2W"}
@@ -401,44 +484,6 @@ function love.draw()
     end
     love.graphics.setBlendMode("alpha")
     love.graphics.pop()
-
-    -- UI Frame
-    love.graphics.setColor(PALETTES.ui.panel)
-    love.graphics.rectangle("fill", 20, 20, 320, 240, 12, 12)
-    love.graphics.setColor(ActiveModule.rData.color)
-    love.graphics.rectangle("line", 20, 20, 320, 240, 12, 12)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("[SPACE] Roll New Module", 40, 40)
-    love.graphics.print("[L-CLICK] Trigger Barrier", 40, 60)
-    
-    love.graphics.setColor(ActiveModule.rData.color)
-    love.graphics.print(string.upper(ActiveModule.name), 40, 90, 0, 1.2, 1.2)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("TIER: ", 40, 115)
-    love.graphics.setColor(ActiveModule.rData.color)
-    love.graphics.print(string.upper(ActiveModule.rarity), 80, 115)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("MAKE: ", 180, 115)
-    love.graphics.setColor(0.8, 0.8, 0.8)
-    love.graphics.print(string.upper(ActiveModule.skin), 225, 115)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("INTERNAL SYSTEMS:", 40, 145)
-    local y = 170
-    local hasMods = false
-    for mod, _ in pairs(ActiveModule.mods) do
-        love.graphics.setColor(0.4, 0.8, 0.4)
-        love.graphics.print(">> " .. string.upper(mod:gsub("_", " ")), 50, y)
-        y = y + 20
-        hasMods = true
-    end
-    if not hasMods then 
-        love.graphics.setColor(0.4, 0.4, 0.4)
-        love.graphics.print("-- FACTORY STANDARD", 50, y) 
-    end
 
     -- Crosshair / Cursor
     local cx, cy = MouseX, MouseY

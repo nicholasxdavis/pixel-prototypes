@@ -1,5 +1,15 @@
 -- Procedural Consumable Engine v3.0 (Polished Juice & Micro-interactions)
 
+local has_flags, FeatureFlags = pcall(require, "game.core.feature_flags")
+local has_consumable_adapter, ConsumableCompat = pcall(require, "prototypes.adapters.consumable_compat")
+
+local function is_flag_enabled(name)
+    if not has_flags or type(FeatureFlags) ~= "table" or type(FeatureFlags.is_enabled) ~= "function" then
+        return false
+    end
+    return FeatureFlags.is_enabled(name)
+end
+
 --------------------------------------------------------------------------------
 -- 1. SYSTEM PALETTES & SETTINGS
 --------------------------------------------------------------------------------
@@ -50,6 +60,107 @@ local ITEM_ARCHETYPES = {
 
 -- Easing Function
 local function lerp(a, b, t) return a + (b - a) * t end
+local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+local function randf(lo, hi) return lo + (hi - lo) * love.math.random() end
+
+--------------------------------------------------------------------------------
+-- 1.5 HOT-PARTICLE STYLE FX PRESETS (Data-driven, export-friendly shape)
+--------------------------------------------------------------------------------
+local HOT_PARTICLE_PRESETS = {
+    default = {
+        life = 1.0,
+        systems = {
+            {
+                blendMode = "alpha", emitAtStart = 30, kickStartSteps = 2, kickStartDt = 1 / 60,
+                particleLifetime = {0.25, 0.6}, speed = {90, 300}, spread = math.pi * 2, direction = 0,
+                linearAcceleration = {-80, -80, 80, 80}, linearDamping = {0.8, 2.5},
+                radialAcceleration = {-20, 10}, tangentialAcceleration = {-40, 40},
+                spin = {-4, 4}, spinVariation = 1.0, sizes = {1.2, 0.7, 0.0}, sizeVariation = 0.4
+            }
+        }
+    },
+    splash = {
+        life = 1.2,
+        systems = {
+            {
+                blendMode = "alpha", emitAtStart = 42, kickStartSteps = 3, kickStartDt = 1 / 60,
+                particleLifetime = {0.3, 0.9}, speed = {120, 440}, spread = math.pi * 2, direction = 0,
+                linearAcceleration = {-30, 400, 30, 1150}, linearDamping = {0.4, 1.3},
+                radialAcceleration = {-20, 20}, tangentialAcceleration = {-80, 80},
+                spin = {-5, 5}, spinVariation = 1.0, sizes = {1.8, 1.1, 0.2}, sizeVariation = 0.5
+            },
+            {
+                blendMode = "add", emitAtStart = 16, kickStartSteps = 2, kickStartDt = 1 / 60,
+                particleLifetime = {0.2, 0.45}, speed = {80, 180}, spread = math.pi * 2, direction = 0,
+                linearAcceleration = {-20, -20, 20, 20}, linearDamping = {3.0, 6.0},
+                radialAcceleration = {-120, -30}, tangentialAcceleration = {-20, 20},
+                spin = {-2, 2}, spinVariation = 0.5, sizes = {2.5, 0.0}, sizeVariation = 0.2
+            }
+        }
+    },
+    magic = {
+        life = 1.5,
+        systems = {
+            {
+                blendMode = "add", emitAtStart = 58, kickStartSteps = 5, kickStartDt = 1 / 120,
+                particleLifetime = {0.4, 1.2}, speed = {30, 220}, spread = math.pi * 2, direction = 0,
+                linearAcceleration = {-60, -220, 60, -30}, linearDamping = {0.4, 1.0},
+                radialAcceleration = {-140, -40}, tangentialAcceleration = {-260, 260},
+                spin = {-8, 8}, spinVariation = 1.0, sizes = {1.6, 1.1, 0.3}, sizeVariation = 0.6
+            },
+            {
+                blendMode = "add", emitAtStart = 24, kickStartSteps = 1, kickStartDt = 1 / 60,
+                particleLifetime = {0.18, 0.35}, speed = {10, 30}, spread = math.pi * 2, direction = 0,
+                linearAcceleration = {-10, -10, 10, 10}, linearDamping = {5.0, 8.0},
+                radialAcceleration = {-200, -80}, tangentialAcceleration = {-40, 40},
+                spin = {-4, 4}, spinVariation = 1.0, sizes = {3.2, 0.0}, sizeVariation = 0.1
+            }
+        }
+    },
+    metal = {
+        life = 1.0,
+        systems = {
+            {
+                blendMode = "alpha", emitAtStart = 34, kickStartSteps = 2, kickStartDt = 1 / 60,
+                particleLifetime = {0.3, 0.8}, speed = {140, 380}, spread = math.pi * 2, direction = 0,
+                linearAcceleration = {-40, 380, 40, 980}, linearDamping = {0.3, 1.2},
+                radialAcceleration = {-30, 20}, tangentialAcceleration = {-50, 50},
+                spin = {-9, 9}, spinVariation = 1.0, sizes = {1.0, 1.0, 0.4}, sizeVariation = 0.3
+            }
+        }
+    },
+    glass = {
+        life = 1.1,
+        systems = {
+            {
+                blendMode = "alpha", emitAtStart = 30, kickStartSteps = 2, kickStartDt = 1 / 60,
+                particleLifetime = {0.35, 1.0}, speed = {100, 320}, spread = math.pi * 2, direction = 0,
+                linearAcceleration = {-25, 280, 25, 900}, linearDamping = {0.2, 0.8},
+                radialAcceleration = {-20, 20}, tangentialAcceleration = {-30, 30},
+                spin = {-12, 12}, spinVariation = 1.0, sizes = {1.0, 0.8, 0.2}, sizeVariation = 0.2
+            },
+            {
+                blendMode = "add", emitAtStart = 12, kickStartSteps = 1, kickStartDt = 1 / 60,
+                particleLifetime = {0.15, 0.28}, speed = {40, 90}, spread = math.pi * 2, direction = 0,
+                linearAcceleration = {-20, -20, 20, 20}, linearDamping = {4.0, 7.0},
+                radialAcceleration = {-180, -100}, tangentialAcceleration = {-20, 20},
+                spin = {-2, 2}, spinVariation = 0.5, sizes = {2.2, 0.0}, sizeVariation = 0.1
+            }
+        }
+    },
+    crumb = {
+        life = 0.95,
+        systems = {
+            {
+                blendMode = "alpha", emitAtStart = 45, kickStartSteps = 2, kickStartDt = 1 / 60,
+                particleLifetime = {0.2, 0.65}, speed = {70, 250}, spread = math.pi * 2, direction = 0,
+                linearAcceleration = {-90, 330, 90, 1100}, linearDamping = {1.4, 3.4},
+                radialAcceleration = {-10, 5}, tangentialAcceleration = {-45, 45},
+                spin = {-6, 6}, spinVariation = 1.0, sizes = {1.4, 0.8, 0.0}, sizeVariation = 0.5
+            }
+        }
+    }
+}
 
 --------------------------------------------------------------------------------
 -- 2. THE CANVAS GENERATOR (Strict Pixel-Art)
@@ -240,24 +351,136 @@ end
 --------------------------------------------------------------------------------
 -- 3. INTERACTION, JUICE & PARTICLE SYSTEM
 --------------------------------------------------------------------------------
-local Particles, FloatingTexts = {}, {}
+local FloatingTexts = {}
 local MouseX, MouseY = 400, 300
 local ActiveItem = {}
+local FXTexture
+local FXBursts = {}
+local IdleFx = nil
+local Scene = {
+    motion = 1.0, bgSpeed = 10, bobSpeed = 2.2, bobAmount = 7,
+    tilt = 0.15, consumeIntensity = 1.0, accent = {0.2, 0.6, 1.0}, rarityBias = 0
+}
 
 -- Juice State
 local Anim = {
     shake = 0, scaleX = 0, scaleY = 0, targetScale = 1.0, 
-    popT = 0, isConsumed = false, screenFlash = 0
+    popT = 0, isConsumed = false, screenFlash = 0, itemAlpha = 1.0
 }
+
+local function makeFxPixelTexture()
+    local c = love.graphics.newCanvas(4, 4)
+    love.graphics.setCanvas(c)
+    love.graphics.clear(0, 0, 0, 0)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.rectangle("fill", 0, 0, 4, 4)
+    love.graphics.setCanvas()
+    c:setFilter("nearest", "nearest")
+    return c
+end
+
+local function setParticleSystemFromPreset(ps, cfg)
+    ps:setDirection(cfg.direction or 0)
+    ps:setSpread(cfg.spread or (math.pi * 2))
+    ps:setParticleLifetime(cfg.particleLifetime[1], cfg.particleLifetime[2])
+    ps:setSpeed(cfg.speed[1], cfg.speed[2])
+    ps:setLinearAcceleration(cfg.linearAcceleration[1], cfg.linearAcceleration[2], cfg.linearAcceleration[3], cfg.linearAcceleration[4])
+    ps:setLinearDamping(cfg.linearDamping[1], cfg.linearDamping[2])
+    ps:setRadialAcceleration(cfg.radialAcceleration[1], cfg.radialAcceleration[2])
+    ps:setTangentialAcceleration(cfg.tangentialAcceleration[1], cfg.tangentialAcceleration[2])
+    ps:setSpin(cfg.spin[1], cfg.spin[2])
+    ps:setSpinVariation(cfg.spinVariation or 0)
+    ps:setSizes(unpack(cfg.sizes))
+    ps:setSizeVariation(cfg.sizeVariation or 0)
+    ps:setEmitterLifetime(0.05)
+end
+
+local function particleColorsForStyle(style, liquidColor)
+    if style == "crumb" then
+        return PALETTES.paper.dark, PALETTES.paper.highlight
+    elseif style == "metal" then
+        return PALETTES.metal.base, PALETTES.metal.highlight
+    elseif style == "glass" then
+        return PALETTES.glass.base, PALETTES.glass.highlight
+    elseif style == "magic" then
+        return liquidColor, PALETTES.liquids.mana.highlight
+    elseif style == "spark" then
+        return PALETTES.metal.highlight, liquidColor
+    elseif style == "splat" then
+        return liquidColor, PALETTES.flesh.base
+    end
+    return liquidColor, PALETTES.liquids.health.highlight
+end
+
+local function makeBurst(style, itemData, x, y)
+    local preset = HOT_PARTICLE_PRESETS[style] or HOT_PARTICLE_PRESETS.default
+    local liq = PALETTES.liquids[itemData.liquid]
+    local cA, cB = particleColorsForStyle(style, liq.highlight)
+    local burst = { x = x, y = y, life = preset.life, systems = {} }
+
+    for _, cfg in ipairs(preset.systems) do
+        local ps = love.graphics.newParticleSystem(FXTexture, 256)
+        setParticleSystemFromPreset(ps, cfg)
+        local hueJitter = randf(-0.08, 0.12)
+        local satJitter = randf(0.9, 1.1)
+        local function tint(c)
+            return clamp((c[1] + hueJitter) * satJitter, 0, 1), clamp((c[2] + hueJitter * 0.4) * satJitter, 0, 1), clamp((c[3] - hueJitter * 0.3) * satJitter, 0, 1)
+        end
+        local a1, a2, a3 = tint(cA)
+        local b1, b2, b3 = tint(cB)
+        ps:setColors(
+            a1, a2, a3, 0.92,
+            b1, b2, b3, 0.75,
+            b1, b2, b3, 0
+        )
+        ps:start()
+        for _ = 1, (cfg.kickStartSteps or 0) do
+            ps:update(cfg.kickStartDt or (1 / 60))
+        end
+        local emit = math.floor((cfg.emitAtStart or 0) * randf(0.75, 1.2) * Scene.consumeIntensity)
+        ps:emit(emit)
+        table.insert(burst.systems, { ps = ps, blendMode = cfg.blendMode or "alpha" })
+    end
+
+    burst.life = burst.life * randf(0.85, 1.25)
+    table.insert(FXBursts, burst)
+end
+
+local function makeIdleFx(itemData)
+    local liq = PALETTES.liquids[itemData.liquid]
+    local ps = love.graphics.newParticleSystem(FXTexture, 96)
+    ps:setDirection(-math.pi / 2)
+    ps:setSpread(math.pi / 4)
+    ps:setParticleLifetime(0.6, 1.35)
+    ps:setSpeed(6, 20)
+    ps:setLinearAcceleration(-8, -42, 8, -16)
+    ps:setLinearDamping(0.2, 0.6)
+    ps:setRadialAcceleration(-6, 6)
+    ps:setTangentialAcceleration(-8, 8)
+    ps:setSpin(-2, 2)
+    ps:setSpinVariation(1.0)
+    ps:setSizes(1.8, 0.8, 0.0)
+    ps:setSizeVariation(0.4)
+    ps:setEmitterLifetime(-1)
+    ps:setEmissionRate(10 + itemData.rData.mult * 1.5 + Scene.rarityBias)
+    ps:setColors(
+        liq.highlight[1], liq.highlight[2], liq.highlight[3], 0.35,
+        liq.highlight[1], liq.highlight[2], liq.highlight[3], 0.15,
+        liq.highlight[1], liq.highlight[2], liq.highlight[3], 0
+    )
+    ps:start()
+    return { ps = ps, blendMode = "add" }
+end
 
 local function triggerConsume(itemData)
     if Anim.isConsumed then return end
     Anim.isConsumed = true
-    Anim.shake = 20
+    Anim.shake = 12 * Scene.consumeIntensity
     Anim.screenFlash = 1.0
-    Anim.scaleX = 1.8 -- Aggressive stretch
-    Anim.scaleY = 0.4 -- Aggressive squash
-    Anim.targetScale = 0.0 -- Shrink to nothing
+    Anim.scaleX = randf(1.25, 1.55) * Scene.consumeIntensity
+    Anim.scaleY = randf(0.55, 0.8)
+    Anim.targetScale = 0.08
+    Anim.itemAlpha = 1.0
 
     local liq = PALETTES.liquids[itemData.liquid]
     local arch = ITEM_ARCHETYPES[itemData.arch]
@@ -265,79 +488,55 @@ local function triggerConsume(itemData)
 
     -- Explosive Combat Text
     local val = math.floor(love.math.random(25, 100) * itemData.rData.mult)
+    local textLabel = string.gsub(liq.text, "%+", "")
     table.insert(FloatingTexts, {
         x = cX, y = cY, targetY = cY - 80, 
-        text = "+" .. val .. " " .. string.gsub(liq.text, "+", ""),
-        color = liq.highlight, life = 2.5, scale = 0.1
+        text = "+" .. val .. " " .. textLabel,
+        color = liq.highlight, life = 2.5, scale = 0.1, pulse = 0
     })
-
-    -- Premium Particle Burst
-    local numParticles = love.math.random(30, 50)
-    for i=1, numParticles do
-        local angle = love.math.random() * math.pi * 2
-        local speed = love.math.random(80, 450)
-        
-        local pColor = liq.base
-        if arch.particle == "crumb" then pColor = PALETTES.paper.dark
-        elseif arch.particle == "metal" then pColor = PALETTES.metal.highlight
-        elseif arch.particle == "glass" then pColor = PALETTES.glass.highlight
-        elseif arch.particle == "magic" then pColor = liq.highlight end
-
-        table.insert(Particles, {
-            x = cX, y = cY, vx = math.cos(angle)*speed, vy = math.sin(angle)*speed,
-            life = love.math.random(0.4, 1.2), maxLife = 1.2, size = love.math.random(3, 8),
-            color = pColor, style = arch.particle, rot = love.math.random()*math.pi, rotV = love.math.random(-5, 5)
-        })
+    makeBurst(arch.particle, itemData, cX, cY)
+    if itemData.rData.glow > 0.4 then
+        makeBurst("magic", itemData, cX, cY)
     end
 end
 
 local function updateInteractions(dt)
+    dt = math.min(dt, 1 / 30)
     -- Physics Spring for Squash & Stretch
-    Anim.shake = math.max(0, Anim.shake - dt * 60)
-    Anim.screenFlash = math.max(0, Anim.screenFlash - dt * 3)
+    Anim.shake = math.max(0, Anim.shake - dt * (30 + 20 * Scene.motion))
+    Anim.screenFlash = math.max(0, Anim.screenFlash - dt * (1.6 + Scene.motion))
     
-    Anim.scaleX = lerp(Anim.scaleX, Anim.targetScale, dt * 15)
-    Anim.scaleY = lerp(Anim.scaleY, Anim.targetScale, dt * 15)
+    Anim.scaleX = lerp(Anim.scaleX, Anim.targetScale, dt * (7 + 4 * Scene.motion))
+    Anim.scaleY = lerp(Anim.scaleY, Anim.targetScale, dt * (8 + 4 * Scene.motion))
+    if Anim.isConsumed then
+        Anim.itemAlpha = math.max(0, Anim.itemAlpha - dt * 2.4)
+    else
+        Anim.itemAlpha = lerp(Anim.itemAlpha, 1.0, dt * 10)
+    end
 
     -- Combat Text Easing
     for i = #FloatingTexts, 1, -1 do
         local ft = FloatingTexts[i]
         ft.life = ft.life - dt
-        ft.y = lerp(ft.y, ft.targetY, dt * 8) -- Smooth float up
-        ft.scale = lerp(ft.scale, 1.0, dt * 12) -- Pop out
+        ft.y = lerp(ft.y, ft.targetY, dt * 4.5)
+        ft.scale = lerp(ft.scale, 1.0, dt * 7.5)
+        ft.pulse = (ft.pulse or 0) + dt * 12
         if ft.life <= 0 then table.remove(FloatingTexts, i) end
     end
 
-    -- Advanced Particles
-    local floorY = 460
-    for i = #Particles, 1, -1 do
-        local p = Particles[i]
-        p.life = p.life - dt
-        p.rot = p.rot + p.rotV * dt
-        
-        if p.style == "magic" then
-            p.vy = p.vy - 100 * dt -- Float up
-            p.vx = p.vx + math.sin(love.timer.getTime()*10 + p.life) * 20 -- Swirl
-        else
-            p.vy = p.vy + 1200 * dt -- Heavy Gravity
+    if IdleFx then
+        IdleFx.ps:update(dt)
+    end
+
+    for i = #FXBursts, 1, -1 do
+        local burst = FXBursts[i]
+        burst.life = burst.life - dt
+        for _, layer in ipairs(burst.systems) do
+            layer.ps:update(dt)
         end
-        
-        p.x = p.x + p.vx * dt; p.y = p.y + p.vy * dt
-        
-        -- Floor Collision
-        if p.y > floorY and p.style ~= "magic" then 
-            if p.style == "splash" or p.style == "splat" then
-                -- Flatten out like a liquid puddle
-                p.y = floorY
-                p.vy = 0; p.vx = 0
-                p.sizeX = p.size * 2
-                p.sizeY = p.size * 0.3
-            else
-                p.vy = -p.vy * 0.4; p.y = floorY; p.vx = p.vx * 0.5 
-            end
+        if burst.life <= 0 then
+            table.remove(FXBursts, i)
         end
-        
-        if p.life <= 0 then table.remove(Particles, i) end
     end
 end
 
@@ -346,9 +545,79 @@ end
 --------------------------------------------------------------------------------
 local renderScale = 4
 
+local CONSUMABLE_ARCH_COMPAT_MAP = {
+    med_syringe = "Injector",
+    shield_cell = "RoundVial",
+    stim_pack = "Can",
+}
+
+local RARITY_COMPAT_MAP = {
+    scrap = "Scrap",
+    common = "Common",
+    uncommon = "Uncommon",
+    rare = "Rare",
+    epic = "Epic",
+    legendary = "Legendary",
+}
+
+local function read_compat_meta(compat)
+    if type(compat) ~= "table" or type(compat.meta) ~= "table" then
+        return {}
+    end
+    return compat.meta
+end
+
+local function normalize_dimension(value, fallback)
+    local n = tonumber(value)
+    if n and n > 0 then
+        return n
+    end
+    return fallback
+end
+
 local function rollNewItem()
-    Particles, FloatingTexts = {}, {}
-    Anim = { shake = 0, scaleX = 0, scaleY = 3.0, targetScale = 1.0, isConsumed = false, screenFlash = 0 }
+    FloatingTexts, FXBursts = {}, {}
+    Scene = {
+        motion = randf(0.75, 1.05),
+        bgSpeed = randf(5, 12),
+        bobSpeed = randf(1.2, 2.3),
+        bobAmount = randf(4, 9),
+        tilt = randf(0.08, 0.18),
+        consumeIntensity = randf(0.8, 1.25),
+        accent = {randf(0.15, 0.45), randf(0.25, 0.8), randf(0.45, 1.0)},
+        rarityBias = love.math.random(-2, 4)
+    }
+    Anim = { shake = 0, scaleX = 0.15, scaleY = 1.7, targetScale = 1.0, isConsumed = false, screenFlash = 0, itemAlpha = 1.0 }
+    if is_flag_enabled("enable_mte_consumable_gen") and has_consumable_adapter and type(ConsumableCompat.rollNewConsumable) == "function" then
+        local compat, compat_err = ConsumableCompat.rollNewConsumable()
+        if compat and compat.image then
+            local meta = read_compat_meta(compat)
+            local arch_key = tostring(meta.archetype or compat.arch or "med_syringe"):lower()
+            local arch = CONSUMABLE_ARCH_COMPAT_MAP[arch_key] or "Injector"
+            local type_def = ITEM_ARCHETYPES[arch] and ITEM_ARCHETYPES[arch].type or "Potion"
+            local effect = tostring(meta.effect or compat.effect or "health"):lower()
+            local liquid = PALETTES.liquids[effect] and effect or "health"
+            local rarity_key = tostring(meta.rarity or compat.rarity or "common"):lower()
+            local rarity = RARITY_COMPAT_MAP[rarity_key] or "Common"
+            ActiveItem = {
+                image = compat.image,
+                w = normalize_dimension(compat.w, 24),
+                h = normalize_dimension(compat.h, 32),
+                arch = arch,
+                liquid = liquid,
+                rarity = rarity,
+                rData = RARITIES[rarity] or RARITIES.Common,
+                skin = meta.skin or "MTE",
+                name = compat.name or (rarity .. " " .. arch),
+                type = type_def,
+            }
+            IdleFx = makeIdleFx(ActiveItem)
+            return
+        end
+        if compat_err then
+            print("MTE consumable adapter failed; falling back to legacy generator: " .. tostring(compat_err))
+        end
+    end
 
     local archs = { "MRE", "Can", "AlienMeat", "EnergyCan", "Canteen", "Medkit", "Injector", "RoundVial", "TriFlask", "Scroll", "RuneStone" }
     local liquids = {"health", "health", "shield", "mana", "stamina", "toxin"}
@@ -362,7 +631,14 @@ local function rollNewItem()
     if typeDef == "Food" and love.math.random()>0.8 then liquid = "toxin" end
     if typeDef == "Spell" then liquid = (love.math.random()>0.5 and "mana" or "shield") end
 
-    local rarity = rarities[love.math.random(1, #rarities)]
+    local rarityRoll = love.math.random(1, 100) + Scene.rarityBias
+    local rarity = "Common"
+    if rarityRoll <= 14 then rarity = "Scrap"
+    elseif rarityRoll <= 50 then rarity = "Common"
+    elseif rarityRoll <= 74 then rarity = "Uncommon"
+    elseif rarityRoll <= 90 then rarity = "Rare"
+    elseif rarityRoll <= 98 then rarity = "Epic"
+    else rarity = "Legendary" end
     local data = generateItem(arch, rarity, liquid)
 
     ActiveItem = {
@@ -371,11 +647,13 @@ local function rollNewItem()
         name = string.format("%s %s", rarity, arch),
         type = typeDef
     }
+    IdleFx = makeIdleFx(ActiveItem)
 end
 
 function love.load()
     love.graphics.setDefaultFilter("nearest", "nearest")
     love.mouse.setVisible(false)
+    FXTexture = makeFxPixelTexture()
     rollNewItem()
 end
 
@@ -388,6 +666,7 @@ function love.mousemoved(x, y) MouseX, MouseY = x, y end
 
 function love.mousepressed(x, y, button)
     if button == 1 then triggerConsume(ActiveItem) end
+    if button == 2 then rollNewItem() end
 end
 
 function love.update(dt)
@@ -405,9 +684,13 @@ function love.draw()
     -- Background
     love.graphics.clear(PALETTES.ui.bg)
     love.graphics.setColor(0.08, 0.1, 0.12, 0.5)
-    local gridScroll = (time * 15) % 40
+    local gridScroll = (time * Scene.bgSpeed) % 40
     for x = 0, 800, 40 do love.graphics.line(x, 0, x, 600) end
     for y = 0, 600, 40 do love.graphics.line(0, y + gridScroll, 800, y + gridScroll) end
+    love.graphics.setBlendMode("add", "alphamultiply")
+    love.graphics.setColor(Scene.accent[1], Scene.accent[2], Scene.accent[3], 0.08)
+    love.graphics.ellipse("fill", 400, 120, 300, 100)
+    love.graphics.setBlendMode("alpha")
     
     -- Pedestal
     local pedX, pedY = 400, 420
@@ -421,9 +704,9 @@ function love.draw()
     love.graphics.rectangle("fill", 0, 455, 800, 200)
 
     -- Dynamic Math
-    local idleY = math.sin(time * 3) * 8
+    local idleY = math.sin(time * Scene.bobSpeed) * Scene.bobAmount
     local mNormX = (MouseX - 400) / 400
-    local tilt = mNormX * 0.2 -- Parallax tilt towards mouse
+    local tilt = mNormX * Scene.tilt
     local finalX, finalY = 400 + (mNormX * 10), 320 + idleY
 
     -- Dynamic Floor Reflection/Shadow
@@ -448,32 +731,23 @@ function love.draw()
         love.graphics.setBlendMode("alpha")
     end
 
-    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.setColor(1, 1, 1, Anim.itemAlpha)
     local sX = renderScale * Anim.scaleX
     local sY = renderScale * Anim.scaleY
     love.graphics.draw(ActiveItem.image, finalX, finalY, tilt, sX, sY, ActiveItem.w/2, ActiveItem.h/2)
 
-    -- Particles
-    for _, p in ipairs(Particles) do
-        local alpha = p.life / p.maxLife
-        love.graphics.setColor(p.color[1], p.color[2], p.color[3], alpha)
-        
-        love.graphics.push()
-        love.graphics.translate(p.x, p.y)
-        love.graphics.rotate(p.rot)
-        
-        if p.style == "splash" or p.style == "splat" then
-            local sx = p.sizeX or p.size
-            local sy = p.sizeY or p.size
-            love.graphics.ellipse("fill", 0, 0, sx, sy)
-        elseif p.style == "magic" then
-            love.graphics.setBlendMode("add", "alphamultiply")
-            love.graphics.circle("fill", 0, 0, p.size)
-            love.graphics.setBlendMode("alpha")
-        else
-            love.graphics.rectangle("fill", -p.size/2, -p.size/2, p.size, p.size) 
+    -- Ambient and burst particle systems (HotParticles export-style architecture)
+    if IdleFx and not Anim.isConsumed then
+        love.graphics.setBlendMode(IdleFx.blendMode, "alphamultiply")
+        love.graphics.draw(IdleFx.ps, finalX, finalY + 14)
+        love.graphics.setBlendMode("alpha")
+    end
+    for _, burst in ipairs(FXBursts) do
+        for _, layer in ipairs(burst.systems) do
+            love.graphics.setBlendMode(layer.blendMode, "alphamultiply")
+            love.graphics.draw(layer.ps, burst.x, burst.y)
         end
-        love.graphics.pop()
+        love.graphics.setBlendMode("alpha")
     end
     love.graphics.pop()
 
@@ -488,9 +762,10 @@ function love.draw()
 
     -- Floating Text (UI Layer)
     for _, ft in ipairs(FloatingTexts) do
-        local alpha = math.min(1.0, ft.life * 2)
+        local alpha = clamp(ft.life * 1.2, 0, 1)
+        local wobble = math.sin(ft.pulse or 0) * 1.2
         love.graphics.push()
-        love.graphics.translate(ft.x, ft.y)
+        love.graphics.translate(ft.x + wobble, ft.y)
         love.graphics.scale(ft.scale, ft.scale)
         -- Shadow
         love.graphics.setColor(0, 0, 0, alpha)
@@ -500,34 +775,6 @@ function love.draw()
         love.graphics.print(ft.text, -20, 0, 0, 1.5, 1.5)
         love.graphics.pop()
     end
-
-    -- UI Frame
-    love.graphics.setColor(PALETTES.ui.panel)
-    love.graphics.rectangle("fill", 20, 20, 320, 210, 12, 12)
-    love.graphics.setColor(ActiveItem.rData.color)
-    love.graphics.rectangle("line", 20, 20, 320, 210, 12, 12)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("[SPACE] Rummage for Loot", 40, 40)
-    love.graphics.print("[L-CLICK] Use/Consume Item", 40, 60)
-    
-    love.graphics.setColor(ActiveItem.rData.color)
-    love.graphics.print(string.upper(ActiveItem.name), 40, 90, 0, 1.2, 1.2)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("TIER: ", 40, 115)
-    love.graphics.setColor(ActiveItem.rData.color)
-    love.graphics.print(string.upper(ActiveItem.rarity), 80, 115)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("CLASS: ", 180, 115)
-    love.graphics.setColor(0.8, 0.8, 0.8)
-    love.graphics.print(string.upper(ActiveItem.type), 235, 115)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("PROPERTIES:", 40, 145)
-    love.graphics.setColor(PALETTES.liquids[ActiveItem.liquid].highlight)
-    love.graphics.print(">> " .. PALETTES.liquids[ActiveItem.liquid].text, 50, 170)
 
     -- Custom Cursor
     local cx, cy = MouseX, MouseY

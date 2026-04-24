@@ -1,6 +1,16 @@
 -- main.lua
 -- Procedural Loot Generation Engine v13.1 (Maximum Detail, Parallax & Shockwaves)
 
+local has_flags, FeatureFlags = pcall(require, "game.core.feature_flags")
+local has_item_adapter, ItemCompat = pcall(require, "prototypes.adapters.item_compat")
+
+local function is_flag_enabled(name)
+    if not has_flags or type(FeatureFlags) ~= "table" or type(FeatureFlags.is_enabled) ~= "function" then
+        return false
+    end
+    return FeatureFlags.is_enabled(name)
+end
+
 --------------------------------------------------------------------------------
 -- 1. SYSTEM PALETTES, RARITIES & SETTINGS
 --------------------------------------------------------------------------------
@@ -8,7 +18,7 @@ local PALETTES = {
     outline = {0.1, 0.1, 0.12},
     metal   = { base={0.45, 0.45, 0.5}, dark={0.15, 0.15, 0.18}, highlight={0.7, 0.75, 0.8} },
     wood    = { base={0.55, 0.35, 0.2}, dark={0.35, 0.2, 0.1}, highlight={0.7, 0.5, 0.3} },
-    alien   = { base={0.15, 0.2, 0.15}, node={0.8, 0.1, 0.5}, glow={1.0, 0.3, 0.8} },
+    alien   = { base={0.15, 0.2, 0.15}, dark={0.06, 0.09, 0.06}, node={0.8, 0.1, 0.5}, glow={1.0, 0.3, 0.8} },
     gold    = { base={0.9, 0.7, 0.1}, dark={0.5, 0.3, 0.05}, highlight={1.0, 0.9, 0.5} },
     leather = { base={0.4, 0.25, 0.15}, dark={0.2, 0.1, 0.05} },
     p2w     = { neon={1.0, 0.1, 0.6}, cyan={0.1, 1.0, 0.8}, trim={1.0, 0.9, 0.2}, white={1,1,1} },
@@ -536,9 +546,66 @@ end
 --------------------------------------------------------------------------------
 local renderScale = 4
 
+local ITEM_ARCH_COMPAT_MAP = {
+    toolkit = "BanditLocker",
+    keycard = "Keycard",
+    cache_crate = "TechSafe",
+}
+
+local RARITY_COMPAT_MAP = {
+    scrap = "Scrap",
+    common = "Common",
+    uncommon = "Uncommon",
+    rare = "Rare",
+    epic = "Epic",
+    legendary = "Legendary",
+    eridian = "Eridian",
+    p2w = "P2W",
+}
+
+local function read_compat_meta(compat)
+    if type(compat) ~= "table" or type(compat.meta) ~= "table" then
+        return {}
+    end
+    return compat.meta
+end
+
+local function normalize_dimension(value, fallback)
+    local n = tonumber(value)
+    if n and n > 0 then
+        return n
+    end
+    return fallback
+end
+
 local function rollNewContainer()
     Particles, FloatingTexts, Dust, Shockwaves = {}, {}, {}, {}
     LootState = { shake = 0, scaleX = 1.0, scaleY = 1.0, screenFlash = 0, hitFlash = 0, lastHit = 0 }
+    if is_flag_enabled("enable_mte_item_gen") and has_item_adapter and type(ItemCompat.rollNewItem) == "function" then
+        local compat, compat_err = ItemCompat.rollNewItem()
+        if compat and compat.image then
+            local meta = read_compat_meta(compat)
+            local arch_key = tostring(meta.archetype or compat.arch or "toolkit"):lower()
+            local arch_name = ITEM_ARCH_COMPAT_MAP[arch_key] or "BanditLocker"
+            local arch = ARCHETYPES[arch_name] or ARCHETYPES.BanditLocker
+            local rarity_key = tostring(meta.rarity or "common"):lower()
+            local rarity = RARITY_COMPAT_MAP[rarity_key] or "Common"
+            ActiveItem = {
+                image = compat.image,
+                w = normalize_dimension(compat.w, 64),
+                h = normalize_dimension(compat.h, 64),
+                arch = arch_name,
+                rarity = rarity,
+                rData = RARITIES[rarity] or RARITIES.Common,
+                def = arch,
+                name = compat.name or (rarity .. " " .. arch_name),
+            }
+            return
+        end
+        if compat_err then
+            print("MTE item adapter failed; falling back to legacy generator: " .. tostring(compat_err))
+        end
+    end
 
     local archs = { 
         "SkeletonKey", "Keycard", "EridianCipher", 
@@ -727,35 +794,6 @@ function love.draw()
         love.graphics.print(ft.text, -20, 0, 0, 2, 2)
         love.graphics.pop()
     end
-
-    -- UI Layout Frame
-    love.graphics.setColor(PALETTES.ui.panel)
-    love.graphics.rectangle("fill", 20, 20, 320, 240, 12, 12)
-    love.graphics.setColor(ActiveItem.rData.color)
-    love.graphics.rectangle("line", 20, 20, 320, 240, 12, 12)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("[SPACE] Discover New Object", 40, 40)
-    love.graphics.print("[L-CLICK] Open / Inspect", 40, 60)
-    
-    love.graphics.setColor(ActiveItem.rData.color)
-    love.graphics.print(string.upper(ActiveItem.name), 40, 90, 0, 1.2, 1.2)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("TIER: ", 40, 115)
-    love.graphics.setColor(ActiveItem.rData.color)
-    love.graphics.print(string.upper(ActiveItem.rarity), 80, 115)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("CLASS: ", 180, 115)
-    love.graphics.setColor(0.8, 0.8, 0.8)
-    love.graphics.print(string.upper(ActiveItem.def.class), 235, 115)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("CONTENTS:", 40, 145)
-    love.graphics.setColor(0.4, 0.8, 0.4)
-    if ActiveItem.def.type == "P2W Crate" then love.graphics.setColor(PALETTES.p2w.neon) end
-    love.graphics.print(">> " .. string.upper(ActiveItem.def.drop), 50, 170)
 
     -- Custom Crosshair
     local cx, cy = MouseX, MouseY

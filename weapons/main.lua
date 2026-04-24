@@ -1,243 +1,136 @@
 -- main.lua
 -- Procedural Weapon Generation Engine v12.0 (Organic Smoke & Detail Polish)
 
---------------------------------------------------------------------------------
--- 1. SYSTEM PALETTES, RARITIES & SETTINGS
---------------------------------------------------------------------------------
-local PALETTES = {
-    metal = { base={0.45, 0.45, 0.5}, dark={0.15, 0.15, 0.18}, highlight={0.7, 0.75, 0.8} },
-    gold  = { base={0.9, 0.7, 0.1}, dark={0.5, 0.3, 0.05}, highlight={1.0, 0.9, 0.5} },
-    brass = { base={0.9, 0.7, 0.2}, dark={0.6, 0.4, 0.1}, highlight={1.0, 0.9, 0.5} },
-    mats = {
-        wood  = { base={0.5, 0.35, 0.2}, dark={0.25, 0.15, 0.08}, highlight={0.6, 0.45, 0.25}, name="Wood" },
-        comp  = { base={0.18, 0.18, 0.2}, dark={0.05, 0.05, 0.08}, highlight={0.3, 0.3, 0.35}, name="Polymer" },
-        tan   = { base={0.65, 0.55, 0.4}, dark={0.4, 0.35, 0.25}, highlight={0.8, 0.7, 0.5}, name="Desert Tan" },
-        olive = { base={0.35, 0.45, 0.3}, dark={0.15, 0.25, 0.15}, highlight={0.5, 0.6, 0.45}, name="Olive Drab" },
-        scrap = { base={0.6, 0.3, 0.15}, dark={0.3, 0.1, 0.05}, highlight={0.8, 0.4, 0.2}, name="Rusted" },
-        cyber = { base={0.9, 0.9, 0.95}, dark={0.5, 0.5, 0.6}, highlight={1.0, 1.0, 1.0}, name="Ceramic" }
-    },
-    ui    = { bg={0.04, 0.05, 0.07}, panel={0.08, 0.1, 0.12, 0.95}, text={0.9, 0.9, 0.9} },
-    spells = {
-        plasma = { base={0.2, 0.9, 1.0}, highlight={0.8, 1.0, 1.0}, style="float", blend="add" },
-        fire   = { base={1.0, 0.4, 0.1}, highlight={1.0, 0.9, 0.2}, style="burn", blend="add" },
-        shock  = { base={0.8, 0.9, 0.1}, highlight={1.0, 1.0, 0.8}, style="zap", blend="add" },
-        poison = { base={0.4, 0.9, 0.2}, highlight={0.7, 1.0, 0.4}, style="drip", blend="alpha" },
-        ice    = { base={0.6, 1.0, 1.0}, highlight={1.0, 1.0, 1.0}, style="shatter", blend="add" },
-        void   = { base={0.15, 0.05, 0.25}, highlight={0.3, 0.1, 0.5}, style="void", blend="alpha" },
-        none   = { base={1.0, 0.9, 0.6}, highlight={1.0, 1.0, 1.0}, style="kinetic", blend="add" }
-    }
-}
+local has_flags, FeatureFlags = pcall(require, "game.core.feature_flags")
+local has_weapon_adapter, WeaponCompat = pcall(require, "prototypes.adapters.weapon_compat")
 
-local RARITIES = {
-    Scrap     = { color = {0.5, 0.3, 0.2}, mods = 0, p_mult = 0.2, stats = {dmg=0.5, speed=0.8} },
-    Common    = { color = {0.6, 0.6, 0.6}, mods = 0, p_mult = 0.5, stats = {dmg=1.0, speed=1.0} },
-    Uncommon  = { color = {0.3, 0.8, 0.4}, mods = 1, p_mult = 0.8, stats = {dmg=1.2, speed=1.1} },
-    Rare      = { color = {0.2, 0.6, 1.0}, mods = 2, p_mult = 1.2, stats = {dmg=1.5, speed=1.2} },
-    Epic      = { color = {0.8, 0.3, 1.0}, mods = 3, p_mult = 2.0, stats = {dmg=2.0, speed=1.4} },
-    Legendary = { color = {1.0, 0.8, 0.2}, mods = 4, p_mult = 3.5, stats = {dmg=3.0, speed=1.8} },
-    Mythic    = { color = {0.1, 1.0, 0.8}, mods = 4, p_mult = 4.5, stats = {dmg=4.0, speed=2.0} },
-    P2W       = { color = {1.0, 0.1, 0.6}, mods = 5, p_mult = 6.0, stats = {dmg=6.0, speed=3.0} }
-}
-
-local WEAPON_ARCHETYPES = {
-    Revolver       = { w=64, h=48, b_len=12, b_thick=4, rec_len=12, rec_thick=8, grip=10, stock=0, fireDelay=0.4, kick=15, pellets=1, spread=0.02, shell=2 },
-    HandCannon     = { w=80, h=48, b_len=16, b_thick=6, rec_len=16, rec_thick=10, grip=12, stock=0, fireDelay=0.6, kick=35, pellets=1, spread=0.01, shell=3 },
-    Pistol         = { w=64, h=48, b_len=10, b_thick=5, rec_len=14, rec_thick=8, grip=10, stock=0, fireDelay=0.2, kick=8, pellets=1, spread=0.04, shell=1 },
-    MachinePistol  = { w=64, h=48, b_len=8,  b_thick=5, rec_len=12, rec_thick=8, grip=10, stock=0, fireDelay=0.06, kick=6, pellets=1, spread=0.15, shell=1 },
-    SMG            = { w=80, h=48, b_len=12, b_thick=5, rec_len=16, rec_thick=10, grip=12, stock=10, fireDelay=0.08, kick=4, pellets=1, spread=0.1, shell=1 },
-    VectorSMG      = { w=80, h=48, b_len=10, b_thick=6, rec_len=16, rec_thick=12, grip=12, stock=12, fireDelay=0.05, kick=2, pellets=1, spread=0.08, shell=1 },
-    AssaultRifle   = { w=96, h=48, b_len=24, b_thick=6, rec_len=20, rec_thick=10, grip=12, stock=16, fireDelay=0.12, kick=6, pellets=1, spread=0.05, shell=2 },
-    BullpupRifle   = { w=96, h=48, b_len=26, b_thick=6, rec_len=16, rec_thick=10, grip=12, stock=20, fireDelay=0.1, kick=5, pellets=1, spread=0.04, shell=2 },
-    DMR            = { w=112, h=48, b_len=30, b_thick=5, rec_len=22, rec_thick=9, grip=12, stock=16, fireDelay=0.4, kick=18, pellets=1, spread=0.01, shell=3 },
-    Shotgun        = { w=96, h=48, b_len=24, b_thick=6, rec_len=18, rec_thick=10, grip=12, stock=14, fireDelay=0.7, kick=25, pellets=8, spread=0.25, shell=3 },
-    AutoShotgun    = { w=96, h=48, b_len=20, b_thick=8, rec_len=24, rec_thick=12, grip=12, stock=14, fireDelay=0.2, kick=18, pellets=5, spread=0.2, shell=3 },
-    SawedOff       = { w=64, h=48, b_len=10, b_thick=8, rec_len=12, rec_thick=8, grip=10, stock=0, fireDelay=0.9, kick=40, pellets=10, spread=0.4, shell=3 },
-    DoubleBarrel   = { w=80, h=48, b_len=18, b_thick=8, rec_len=14, rec_thick=8, grip=12, stock=14, fireDelay=1.0, kick=45, pellets=12, spread=0.35, shell=3 },
-    SniperRifle    = { w=112, h=48, b_len=36, b_thick=4, rec_len=20, rec_thick=9, grip=12, stock=18, fireDelay=1.2, kick=35, pellets=1, spread=0.0, shell=4 },
-    HeavyMG        = { w=112, h=64, b_len=32, b_thick=8, rec_len=28, rec_thick=14, grip=14, stock=18, fireDelay=0.08, kick=8, pellets=1, spread=0.12, shell=3 },
-    Minigun        = { w=112, h=64, b_len=30, b_thick=14, rec_len=26, rec_thick=16, grip=14, stock=0, fireDelay=0.04, kick=3, pellets=1, spread=0.15, shell=2 },
-    RocketLauncher = { w=112, h=64, b_len=40, b_thick=12, rec_len=24, rec_thick=14, grip=12, stock=10, fireDelay=1.5, kick=40, pellets=1, spread=0.0, shell=0 }
-}
-
---------------------------------------------------------------------------------
--- 2. THE CANVAS GENERATOR (Strict Pixel-Art Engine)
---------------------------------------------------------------------------------
-local function makeCanvas(w, h, drawFunction)
-    local c = love.graphics.newCanvas(w, h)
-    love.graphics.setCanvas(c)
-    love.graphics.clear(0, 0, 0, 0)
-    local anchors = drawFunction()
-    love.graphics.setCanvas()
-    return {img = c, w = w, h = h, anchors = anchors}
-end
-
-local function drawComponent(x, y, w, h, cBase, cDark, cHigh)
-    love.graphics.setColor(cDark)
-    love.graphics.rectangle("fill", x-1, y-1, w+2, h+2)
-    love.graphics.setColor(cBase)
-    love.graphics.rectangle("fill", x, y, w, h)
-    if cHigh then
-        love.graphics.setColor(cHigh)
-        love.graphics.rectangle("fill", x, y, w, 1)
+local function is_flag_enabled(name)
+    if not has_flags or type(FeatureFlags) ~= "table" or type(FeatureFlags.is_enabled) ~= "function" then
+        return false
     end
-end
-
-local function generateGun(archName, rarityName, element, mods)
-    local arch = WEAPON_ARCHETYPES[archName]
-    local w, h = arch.w, arch.h
-    local rData = RARITIES[rarityName]
-    
-    local cMetal = PALETTES.metal
-    local skinPool = {PALETTES.mats.wood, PALETTES.mats.comp, PALETTES.mats.tan, PALETTES.mats.olive}
-    local cMat = skinPool[love.math.random(1, #skinPool)]
-    
-    if rarityName == "Scrap" then cMat = PALETTES.mats.scrap; cMetal = PALETTES.mats.scrap end
-    if rarityName == "Mythic" then cMat = PALETTES.mats.cyber; cMetal = PALETTES.mats.cyber end
-    if rarityName == "P2W" then cMat = PALETTES.mats.comp; cMetal = PALETTES.gold end
-    
-    local finalSkinName = cMat.name
-    
-    local canvasData = makeCanvas(w, h, function()
-        local rx, ry = math.floor(w * 0.35), math.floor(h * 0.4)
-        local magLen = mods.extended_clip and 16 or 8
-        if archName == "MachinePistol" then magLen = magLen + 6 end
-        local laserAnchor = nil
-
-        if arch.stock > 0 then drawComponent(rx - arch.stock, ry + 2, arch.stock, 6, cMat.base, cMetal.dark, cMat.highlight) end
-
-        local magX = rx + math.floor(arch.rec_len * 0.6)
-        if archName == "BullpupRifle" then magX = rx - 10
-        elseif archName == "VectorSMG" then magX = rx + 6 end
-
-        if mods.drum_mag or archName == "AutoShotgun" or archName == "HeavyMG" then
-            drawComponent(magX - 4, ry + arch.rec_thick, 14, 14, cMetal.base, cMetal.dark, cMetal.highlight)
-            love.graphics.setColor(cMetal.dark)
-            love.graphics.circle("fill", magX + 3, ry + arch.rec_thick + 7, 4)
-        else
-            drawComponent(magX, ry + arch.rec_thick, 6, magLen, cMetal.base, cMetal.dark, nil)
-        end
-
-        local gripX = rx + 2
-        drawComponent(gripX, ry + arch.rec_thick, 6, arch.grip, cMat.base, cMetal.dark, nil)
-        love.graphics.setColor(cMetal.dark)
-        for i = 2, arch.grip - 2, 3 do love.graphics.line(gripX, ry + arch.rec_thick + i, gripX + 6, ry + arch.rec_thick + i) end
-
-        if archName == "VectorSMG" then
-            love.graphics.setColor(cMetal.dark)
-            love.graphics.polygon("fill", gripX+6, ry+arch.rec_thick-1, magX+8, ry+arch.rec_thick-1, gripX+6, ry+arch.rec_thick+10)
-            love.graphics.setColor(cMetal.base)
-            love.graphics.polygon("fill", gripX+7, ry+arch.rec_thick, magX+6, ry+arch.rec_thick, gripX+7, ry+arch.rec_thick+8)
-        end
-
-        local barrelY = ry + math.floor(arch.rec_thick / 2) - math.floor(arch.b_thick / 2)
-        drawComponent(rx + arch.rec_len, barrelY, arch.b_len, arch.b_thick, cMetal.base, cMetal.dark, cMetal.highlight)
-
-        if archName == "Shotgun" then
-            drawComponent(rx + arch.rec_len + 4, barrelY + 2, 12, 4, cMat.base, cMetal.dark, cMat.highlight)
-        elseif archName == "SawedOff" then
-            drawComponent(rx + arch.rec_len + 2, barrelY + 4, 6, 4, cMat.base, cMetal.dark, nil)
-        elseif archName == "DoubleBarrel" then
-            love.graphics.setColor(cMetal.dark)
-            love.graphics.rectangle("fill", rx + arch.rec_len, barrelY + math.floor(arch.b_thick/2) - 1, arch.b_len, 2)
-            drawComponent(rx + arch.rec_len, barrelY + arch.b_thick, 10, 3, cMat.base, cMetal.dark, nil)
-        elseif archName == "Minigun" then
-            love.graphics.setColor(cMetal.dark)
-            love.graphics.rectangle("fill", rx + arch.rec_len, barrelY + math.floor(arch.b_thick/2), arch.b_len, 2)
-        end
-
-        drawComponent(rx, ry, arch.rec_len, arch.rec_thick, cMetal.base, cMetal.dark, cMetal.highlight)
-
-        love.graphics.setColor(cMetal.dark)
-        love.graphics.rectangle("fill", rx + 2, ry + 2, 1, 1)
-        love.graphics.rectangle("fill", rx + arch.rec_len - 3, ry + 2, 1, 1)
-        love.graphics.rectangle("fill", rx + 2, ry + arch.rec_thick - 3, 1, 1)
-        love.graphics.setColor(cMetal.highlight)
-        love.graphics.rectangle("fill", rx + math.floor(arch.rec_len/2), ry + 2, 2, 1)
-        
-        love.graphics.setColor(cMetal.dark)
-        love.graphics.rectangle("fill", gripX + 6, ry + arch.rec_thick, 6, 5)
-        love.graphics.setColor(0, 0, 0, 0)
-        love.graphics.setBlendMode("replace")
-        love.graphics.rectangle("fill", gripX + 7, ry + arch.rec_thick, 4, 3)
-        love.graphics.setBlendMode("alpha")
-        love.graphics.setColor(cMetal.highlight)
-        love.graphics.rectangle("fill", gripX + 7, ry + arch.rec_thick, 2, 2)
-
-        if element ~= "none" then
-            local spell = PALETTES.spells[element]
-            love.graphics.setColor(0.1, 0.1, 0.1)
-            love.graphics.rectangle("fill", rx + 8, ry + 2, arch.rec_len - 12, arch.rec_thick - 4)
-            love.graphics.setColor(spell.base)
-            love.graphics.rectangle("fill", rx + 9, ry + 3, arch.rec_len - 14, arch.rec_thick - 6)
-        end
-
-        if rarityName == "P2W" then
-            love.graphics.setColor(1.0, 0.1, 0.6)
-            love.graphics.rectangle("fill", rx, ry, 2, arch.rec_thick)
-            love.graphics.rectangle("fill", rx + 4, ry + arch.rec_thick - 2, arch.rec_len - 8, 2)
-        elseif rarityName == "Mythic" then
-            love.graphics.setColor(0.1, 1.0, 0.8)
-            love.graphics.rectangle("fill", rx, ry, 2, arch.rec_thick)
-            love.graphics.rectangle("fill", rx + arch.rec_len - 6, ry + 2, 4, 2)
-        else
-            love.graphics.setColor(rData.color)
-            love.graphics.rectangle("fill", rx, ry, 2, arch.rec_thick)
-        end
-
-        if mods.red_dot or mods.extended_sight then
-            local sLen = mods.extended_sight and 12 or 6
-            local sX = rx + math.floor(arch.rec_len/2) - math.floor(sLen/2)
-            drawComponent(sX, ry - 4, sLen, 3, cMetal.base, cMetal.dark, cMetal.highlight)
-            love.graphics.setColor(cMetal.dark)
-            love.graphics.rectangle("fill", rx + math.floor(arch.rec_len/2), ry - 1, 2, 1)
-            if mods.red_dot then
-                love.graphics.setColor(1, 0, 0)
-                love.graphics.rectangle("fill", sX + sLen - 2, ry - 3, 2, 2)
-                laserAnchor = {x = sX + sLen, y = ry - 2}
-            end
-        end
-
-        if mods.foregrip then
-            local fgX = rx + arch.rec_len + 2
-            local fgY = barrelY + arch.b_thick
-            drawComponent(fgX, fgY, 4, 8, PALETTES.mats.comp.base, cMetal.dark, nil)
-        end
-
-        if mods.bayonet then
-            local byX = rx + arch.rec_len + arch.b_len - 2
-            local byY = barrelY + arch.b_thick
-            love.graphics.setColor(cMetal.dark)
-            love.graphics.polygon("fill", byX, byY-1, byX+14, byY+2, byX+2, byY+5)
-            love.graphics.setColor(cMetal.base)
-            love.graphics.polygon("fill", byX+1, byY, byX+12, byY+2, byX+2, byY+4)
-            love.graphics.setColor(cMetal.highlight)
-            love.graphics.line(byX+1, byY, byX+12, byY+2)
-        end
-
-        local muzzleOffset = 0
-        if mods.silencer then
-            muzzleOffset = 14
-            drawComponent(rx + arch.rec_len + arch.b_len, barrelY - 1, 14, arch.b_thick + 2, PALETTES.mats.comp.base, cMetal.dark, PALETTES.mats.comp.highlight)
-        end
-
-        local coreX, coreY = rx + math.floor(arch.rec_len/2), ry + math.floor(arch.rec_thick/2)
-        local muzzleX = rx + arch.rec_len + arch.b_len + muzzleOffset
-        local muzzleY = barrelY + math.floor(arch.b_thick/2)
-        
-        return { muzzle = {x=muzzleX, y=muzzleY}, core = {x=coreX, y=coreY}, laser = laserAnchor }
-    end)
-    
-    canvasData.skinName = finalSkinName
-    return canvasData
+    return FeatureFlags.is_enabled(name)
 end
 
 --------------------------------------------------------------------------------
+-- 1. SYSTEM PALETTES, RARITIES & SETTINGS (from weapon_gen.lua)
+-------------------------------------------------------------------------------
+local weapon_gen = require("weapon_gen")
+local PALETTES = weapon_gen.PALETTES
+local RARITIES = weapon_gen.RARITIES
+local WEAPON_ARCHETYPES = weapon_gen.WEAPON_ARCHETYPES
+local generateGun = weapon_gen.generateGun
+
+-------------------------------------------------------------------------------
 -- 3. COMBAT, EFFECTS & MICROINTERACTIONS
 --------------------------------------------------------------------------------
 local Particles, Projectiles, Casings, Flashes = {}, {}, {}, {}
 local MouseX, MouseY = 400, 300
 
 local CombatState = { shake = 0, recoilX = 0, recoilRot = 0, fireTimer = 0, crosshairSpread = 0, flashLight = 0 }
+local ParticleFX = { systems = {} }
+
+local function makeParticleTexture(size)
+    local canvas = love.graphics.newCanvas(size, size)
+    love.graphics.setCanvas(canvas)
+    love.graphics.clear(0, 0, 0, 0)
+    love.graphics.setBlendMode("alpha")
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.circle("fill", size * 0.5, size * 0.5, size * 0.45)
+    love.graphics.setCanvas()
+    return canvas
+end
+
+local function createParticleFX()
+    local tex = makeParticleTexture(16)
+
+    local muzzleFlash = love.graphics.newParticleSystem(tex, 80)
+    muzzleFlash:setParticleLifetime(0.04, 0.08)
+    muzzleFlash:setLinearAcceleration(-40, -20, 40, 20)
+    muzzleFlash:setSizes(1.3, 0.7, 0.0)
+    muzzleFlash:setSizeVariation(0.4)
+    muzzleFlash:setSpeed(20, 90)
+    muzzleFlash:setDirection(0)
+    muzzleFlash:setSpread(math.pi * 0.7)
+    muzzleFlash:setEmissionRate(0)
+    muzzleFlash:setInsertMode("top")
+    muzzleFlash:stop()
+
+    local muzzleSmoke = love.graphics.newParticleSystem(tex, 120)
+    muzzleSmoke:setParticleLifetime(0.3, 0.75)
+    muzzleSmoke:setLinearAcceleration(-12, -30, 12, -5)
+    muzzleSmoke:setSizes(0.4, 1.1, 1.6)
+    muzzleSmoke:setSizeVariation(0.35)
+    muzzleSmoke:setSpeed(8, 30)
+    muzzleSmoke:setDirection(-math.pi * 0.5)
+    muzzleSmoke:setSpread(math.pi * 0.45)
+    muzzleSmoke:setEmissionRate(0)
+    muzzleSmoke:setInsertMode("top")
+    muzzleSmoke:stop()
+
+    local impactSparks = love.graphics.newParticleSystem(tex, 100)
+    impactSparks:setParticleLifetime(0.08, 0.2)
+    impactSparks:setLinearAcceleration(-500, -220, -120, 220)
+    impactSparks:setSizes(0.35, 0.1)
+    impactSparks:setSizeVariation(0.5)
+    impactSparks:setSpeed(50, 180)
+    impactSparks:setDirection(math.pi)
+    impactSparks:setSpread(math.pi * 0.8)
+    impactSparks:setEmissionRate(0)
+    impactSparks:setInsertMode("top")
+    impactSparks:stop()
+
+    local impactSmoke = love.graphics.newParticleSystem(tex, 100)
+    impactSmoke:setParticleLifetime(0.15, 0.4)
+    impactSmoke:setLinearAcceleration(-80, -40, 80, 40)
+    impactSmoke:setSizes(0.3, 0.8, 1.2)
+    impactSmoke:setSizeVariation(0.4)
+    impactSmoke:setSpeed(20, 70)
+    impactSmoke:setDirection(math.pi)
+    impactSmoke:setSpread(math.pi * 0.6)
+    impactSmoke:setEmissionRate(0)
+    impactSmoke:setInsertMode("top")
+    impactSmoke:stop()
+
+    return {
+        texture = tex,
+        blendModes = {
+            muzzleFlash = "add",
+            muzzleSmoke = "alpha",
+            impactSparks = "add",
+            impactSmoke = "alpha"
+        },
+        systems = {
+            muzzleFlash = muzzleFlash,
+            muzzleSmoke = muzzleSmoke,
+            impactSparks = impactSparks,
+            impactSmoke = impactSmoke
+        }
+    }
+end
+
+local function emitFX(system, x, y, count, colors)
+    if not system then return end
+    system:setPosition(x, y)
+    if colors then
+        system:setColors(unpack(colors))
+    end
+    system:emit(count)
+end
+
+local function updateParticleFX(dt)
+    for _, system in pairs(ParticleFX.systems) do
+        system:update(dt)
+    end
+end
+
+local function drawParticleFX()
+    for key, system in pairs(ParticleFX.systems) do
+        local blendMode = ParticleFX.blendModes[key] or "alpha"
+        love.graphics.setBlendMode(blendMode, "alphamultiply")
+        love.graphics.draw(system)
+    end
+    love.graphics.setBlendMode("alpha")
+end
 
 local function spawnDebris(x, y, color)
     -- V12 POLISH: Toned down sparks drastically. Smaller, fewer, and they lose momentum fast.
@@ -249,6 +142,16 @@ local function spawnDebris(x, y, color)
             color = color, blend = "add", style = "debris"
         })
     end
+    emitFX(ParticleFX.systems.impactSparks, x, y, love.math.random(10, 16), {
+        color[1], color[2], color[3], 1.0,
+        color[1], color[2], color[3], 0.8,
+        1.0, 1.0, 1.0, 0.0
+    })
+    emitFX(ParticleFX.systems.impactSmoke, x, y, love.math.random(4, 8), {
+        0.7, 0.7, 0.72, 0.35,
+        0.5, 0.5, 0.52, 0.2,
+        0.3, 0.3, 0.32, 0.0
+    })
 end
 
 local function spawnProjectile(x, y, spellData, archData)
@@ -299,6 +202,16 @@ local function triggerFire(weaponData)
     local cX, cY = getRotatedAnchor(weaponData.anchors.core)
 
     local spellData = PALETTES.spells[weaponData.element]
+    emitFX(ParticleFX.systems.muzzleFlash, mX, mY, love.math.random(8, 14), {
+        spellData.highlight[1], spellData.highlight[2], spellData.highlight[3], 1.0,
+        spellData.base[1], spellData.base[2], spellData.base[3], 0.75,
+        spellData.base[1], spellData.base[2], spellData.base[3], 0.0
+    })
+    emitFX(ParticleFX.systems.muzzleSmoke, mX, mY, love.math.random(4, 7), {
+        0.85, 0.85, 0.88, 0.3,
+        0.65, 0.65, 0.68, 0.18,
+        0.45, 0.45, 0.48, 0.0
+    })
     table.insert(Flashes, {
         x = mX, y = mY, life = love.math.random(0.04, 0.06), 
         size = actualKick * love.math.random(0.5, 0.8), 
@@ -391,8 +304,86 @@ end
 local Weapon = {}
 local renderScale = 4
 
+local ARCH_COMPAT_MAP = {
+    assault_rifle = "AssaultRifle",
+    smg = "SMG",
+}
+
+local RARITY_COMPAT_MAP = {
+    scrap = "Scrap",
+    common = "Common",
+    uncommon = "Uncommon",
+    rare = "Rare",
+    epic = "Epic",
+    legendary = "Legendary",
+    mythic = "Mythic",
+    p2w = "P2W",
+}
+
+local function read_compat_meta(compat)
+    if type(compat) ~= "table" or type(compat.meta) ~= "table" then
+        return {}
+    end
+    return compat.meta
+end
+
+local function normalize_dimension(value, fallback)
+    local n = tonumber(value)
+    if n and n > 0 then
+        return n
+    end
+    return fallback
+end
+
+local function normalize_weapon_anchors(anchors, w, h)
+    local default_muzzle = { x = w, y = math.floor(h * 0.5) }
+    local default_core = { x = math.floor(w * 0.5), y = math.floor(h * 0.5) }
+    local default_grip = { x = math.floor(w * 0.38), y = math.floor(h * 0.55) }
+    if type(anchors) ~= "table" then
+        return { muzzle = default_muzzle, core = default_core, laser = nil, grip = default_grip }
+    end
+
+    local muzzle = type(anchors.muzzle) == "table" and anchors.muzzle or default_muzzle
+    local core = type(anchors.core) == "table" and anchors.core or default_core
+    local laser = type(anchors.laser) == "table" and anchors.laser or nil
+    local grip = type(anchors.grip) == "table" and anchors.grip or default_grip
+    return { muzzle = muzzle, core = core, laser = laser, grip = grip }
+end
+
 local function rollNewWeapon()
     Particles, Projectiles, Casings, Flashes = {}, {}, {}, {}
+    ParticleFX = createParticleFX()
+    if is_flag_enabled("enable_mte_weapon_gen") and has_weapon_adapter and type(WeaponCompat.rollNewWeapon) == "function" then
+        local compat, compat_err = WeaponCompat.rollNewWeapon()
+        if compat and compat.image then
+            local meta = read_compat_meta(compat)
+            local arch_key = tostring(meta.archetype or compat.arch or "assault_rifle"):lower()
+            local arch = ARCH_COMPAT_MAP[arch_key] or "AssaultRifle"
+            local rarity_key = tostring(meta.rarity or "common"):lower()
+            local rarity = RARITY_COMPAT_MAP[rarity_key] or "Common"
+            local element = tostring(meta.element or "none"):lower()
+            local width = normalize_dimension(compat.w, 96)
+            local height = normalize_dimension(compat.h, 48)
+            Weapon = {
+                image = compat.image,
+                anchors = normalize_weapon_anchors(compat.anchors, width, height),
+                w = width,
+                h = height,
+                arch = arch,
+                element = PALETTES.spells[element] and element or "none",
+                rarity = rarity,
+                rData = RARITIES[rarity] or RARITIES.Common,
+                skin = meta.skin or "MTE",
+                name = compat.name or (rarity .. " " .. arch),
+                mods = {},
+            }
+            return
+        end
+        if compat_err then
+            print("MTE weapon adapter failed; falling back to legacy generator: " .. tostring(compat_err))
+        end
+    end
+
     local archs = {
         "Revolver", "HandCannon", "Pistol", "MachinePistol", 
         "SMG", "VectorSMG", "AssaultRifle", "BullpupRifle", "DMR",
@@ -437,6 +428,7 @@ function love.load()
     love.graphics.setDefaultFilter("nearest", "nearest")
     love.graphics.setLineStyle("rough")
     love.mouse.setVisible(false)
+    ParticleFX = createParticleFX()
     rollNewWeapon()
 end
 
@@ -449,6 +441,7 @@ function love.mousemoved(x, y) MouseX, MouseY = x, y end
 
 function love.update(dt)
     updateCombatPhysics(dt)
+    updateParticleFX(dt)
     if love.mouse.isDown(1) then triggerFire(Weapon) end
 end
 
@@ -509,6 +502,8 @@ function love.draw()
         love.graphics.rectangle("fill", -c.size*1.5, -c.size, c.size*3, 1)
         love.graphics.pop()
     end
+
+    drawParticleFX()
 
     if Weapon.anchors.laser then
         local dx = (Weapon.anchors.laser.x - Weapon.w/2) * renderScale
@@ -596,44 +591,6 @@ function love.draw()
         end
     end
     love.graphics.pop()
-
-    -- 3. DRAW UI 
-    love.graphics.setColor(PALETTES.ui.panel)
-    love.graphics.rectangle("fill", 20, 20, 320, 240, 12, 12)
-    love.graphics.setColor(Weapon.rData.color)
-    love.graphics.rectangle("line", 20, 20, 320, 240, 12, 12)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("[SPACE] Generate Prototype", 40, 40)
-    love.graphics.print("[L-CLICK] Fire Weapon", 40, 60)
-    
-    love.graphics.setColor(Weapon.rData.color)
-    love.graphics.print(string.upper(Weapon.name), 40, 90, 0, 1.2, 1.2)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("TIER: ", 40, 115)
-    love.graphics.setColor(Weapon.rData.color)
-    love.graphics.print(string.upper(Weapon.rarity), 80, 115)
-    
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    love.graphics.print("CHASSIS: ", 180, 115)
-    love.graphics.setColor(0.8, 0.8, 0.8)
-    love.graphics.print(string.upper(Weapon.skin), 245, 115)
-
-    love.graphics.setColor(PALETTES.ui.text)
-    love.graphics.print("ATTACHMENTS:", 40, 145)
-    local y = 170
-    local hasMods = false
-    for mod, _ in pairs(Weapon.mods) do
-        love.graphics.setColor(0.4, 0.8, 0.4)
-        love.graphics.print(">> " .. string.upper(mod:gsub("_", " ")), 50, y)
-        y = y + 20
-        hasMods = true
-    end
-    if not hasMods then 
-        love.graphics.setColor(0.4, 0.4, 0.4)
-        love.graphics.print("-- FACTORY STANDARD", 50, y) 
-    end
 
     -- Crosshair
     local cx, cy = MouseX, MouseY
